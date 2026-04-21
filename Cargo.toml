@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "etl-unit",
+    "etl-unit-gen",
+    "meta-tracing",
+    "propensity-score",
+    "tnc-analysis",
+    "tnc-data-gen",
+]
+
+# Slim release profile for the CLI; mirrors the tuning from etl-rs.
+[profile.release]
+codegen-units = 1
+lto           = true

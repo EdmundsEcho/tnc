@@ -1,0 +1,34 @@
+{
+      "name": "pump_telemetry",
+      "subject": "station_id",
+      "time": "observation_time",
+      "qualities": [],
+      "measurements": [
+        { "name": "sump", "kind": "measure" },
+        { "name": "fuel", "kind": "measure" },
+        { "name": "engine_1", "kind": "categorical" },
+        { "name": "engine_2", "kind": "categorical" }
+      ],
+      "derivations": [
+        {
+          "name": "any_engine_running",
+          "computation": {
+            "pointwise": {
+              "type": "any_on",
+              "inputs": ["engine_1", "engine_2"]
+            }
+          },
+          "kind": "categorical"
+        },
+        {
+          "name": "engines_running_count",
+          "computation": {
+            "pointwise": {
+              "type": "count_non_zero",
+              "inputs": ["engine_1", "engine_2"]
+            }
+          },
+          "kind": "count"
+        }
+      ]
+    }

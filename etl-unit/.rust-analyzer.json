@@ -1,0 +1,6 @@
+{
+  "cargo": {
+    "features": ["cli"],
+    "allFeatures": false
+  }
+}

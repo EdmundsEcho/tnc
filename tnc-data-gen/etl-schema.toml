@@ -1,0 +1,133 @@
+# =============================================================================
+# ETL SCHEMA  (data generation side)
+#
+# Describes the SUBJECT universe: what qualities + measurements the subjects
+# have, and — for synthetic-data scenarios — how to generate them.
+#
+# In a production run against real data this file is NOT needed beyond the
+# [schema] section.  The [gen] section exists purely so we can produce a
+# plausible test universe for validating the pipeline.
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────
+# Schema — the structural definition (consumable by etl-unit)
+# ─────────────────────────────────────────────────────────────
+[schema]
+subject = "npi"
+time = "mth_cnt"
+
+[[schema.qualities]]
+name = "specialty"
+[[schema.qualities]]
+name = "spec_rollup"
+[[schema.qualities]]
+name = "state"
+[[schema.qualities]]
+name = "brand_seg"
+[[schema.qualities]]
+name = "sf_p1"
+
+# Note: called_on, hc_match, hc_fp, propensity_score, propensity_decile,
+# and brx_F12M_decile are NOT declared here — they are TnC-injected columns
+# added to the subjects table post-generation.
+
+[[schema.measurements]]
+name = "brx"           # brand Rx — the OUTCOME
+kind = "count"
+components = ["payer"]
+
+[[schema.measurements]]
+name = "hrx"           # headroom Rx — competitive class
+kind = "count"
+components = ["payer"]
+
+[[schema.measurements]]
+name = "grx"           # generics Rx — baseline / control stream
+kind = "count"
+components = ["payer"]
+
+
+# ─────────────────────────────────────────────────────────────
+# Gen — synthetic data parameters (only needed for validation runs)
+# ─────────────────────────────────────────────────────────────
+[gen]
+subject_count = 10000
+time_range = { first_month = 1, last_month = 24 }
+seed = 42
+
+[gen.subject_volume_scale]
+distribution = "log_normal"
+mu = 0.0
+sigma = 0.7
+
+[gen.noise]
+cv = 0.10
+
+# --- Qualities ---
+[gen.qualities.specialty]
+distribution = { categorical = [
+  { value = "NP", weight = 0.20 },
+  { value = "FP", weight = 0.25 },
+  { value = "IM", weight = 0.20 },
+  { value = "GP", weight = 0.10 },
+  { value = "CARD", weight = 0.10 },
+  { value = "GI", weight = 0.08 },
+  { value = "PULM", weight = 0.07 }
+] }
+
+[gen.qualities.spec_rollup]
+derived_from = "specialty"
+mapping = { NP = "PCP", FP = "PCP", IM = "PCP", GP = "PCP", CARD = "SPEC", GI = "SPEC", PULM = "SPEC" }
+
+[gen.qualities.state]
+distribution = { categorical = [
+  { value = "NY", weight = 0.2 },
+  { value = "CA", weight = 0.2 },
+  { value = "TX", weight = 0.2 },
+  { value = "FL", weight = 0.2 },
+  { value = "IL", weight = 0.2 }
+] }
+
+[gen.qualities.brand_seg]
+distribution = { categorical = [
+  { value = "Y", weight = 0.4 },
+  { value = "G", weight = 0.35 },
+  { value = "R", weight = 0.25 }
+] }
+
+[gen.qualities.sf_p1]
+distribution = { categorical = [
+  { value = "PC", weight = 0.6 },
+  { value = "OC", weight = 0.4 }
+] }
+
+# --- Measurements ---
+[gen.measurements.brx]
+distribution = { poisson = { lambda = 3.0 } }
+
+[gen.measurements.brx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID", weight = 0.15 },
+  { value = "CASH", weight = 0.10 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.75 }
+] }
+
+[gen.measurements.hrx]
+distribution = { negative_binomial = { mean = 20.0, dispersion = 0.25 } }
+
+[gen.measurements.hrx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID", weight = 0.15 },
+  { value = "CASH", weight = 0.10 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.75 }
+] }
+
+[gen.measurements.grx]
+distribution = { negative_binomial = { mean = 60.0, dispersion = 0.30 } }
+
+[gen.measurements.grx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID", weight = 0.20 },
+  { value = "CASH", weight = 0.15 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.65 }
+] }

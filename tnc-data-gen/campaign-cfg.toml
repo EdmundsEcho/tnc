@@ -1,0 +1,69 @@
+# =============================================================================
+# CAMPAIGN CONFIG
+#
+# Describes the CAMPAIGN mechanics in real calendar time:
+#   • the study horizon (start date + total span)
+#   • the reach window — when subjects actually get reached (campaign_reach_date
+#     lives inside this window)
+#   • minimum pre / maximum post observation windows PER SUBJECT (anchored on
+#     each subject's campaign_reach_date)
+#   • the lag ("test") period between a subject's reach and their post window
+#
+# Two populations matter:
+#   • Target list — subjects the campaign PLANS to reach (input artifact:
+#     `target_list.csv`). Sized by `target_list_fraction`.
+#   • Reached — subjects the campaign ACTUALLY reached; a subset of the
+#     target list (rep-execution slippage). Sized by
+#     `reached_fraction_of_targets`. Flagged via `campaign_reach_date`
+#     being non-null on the subjects frame.
+#
+# Each reached subject's pre / test / post windows are relative to their own
+# campaign_reach_date. For Phase-1 matching, controls (not-reached) use
+# `earliest_reach_month` as a virtual anchor; Phase-2 does per-subject
+# time alignment.
+#
+# In a production run against real data the [lift] section is unused; it
+# only exists to inject a known-truth signal we can recover.
+# =============================================================================
+
+[campaign]
+# Real calendar anchor — everything else is relative to this.
+study_start_date   = "2024-01-01"
+total_span_months  = 24                 # Jan 2024 – Dec 2025
+
+# Per-subject analysis constraints.
+min_pre_months     = 12                 # every reached subject has ≥ this much pre
+max_post_months    = 6                  # every reached subject has ≤ this much post
+test_period_months = 1                  # lag between reach and post — excluded
+
+# Target-list + reach proportions.
+target_list_fraction        = 0.20      # fraction of universe placed on the target list
+reached_fraction_of_targets = 0.85      # fraction of target list actually reached
+
+# Reach window — the real-world span during which reach dates actually fall.
+# Must satisfy:
+#   start_date           >= study_start_date + min_pre_months
+#   start_date + duration - 1 + test_period_months + max_post_months
+#                        <= study_start_date + total_span_months - 1
+#
+# With study_start = 2024-01-01, total_span = 24, min_pre = 12, max_post = 6,
+# test_period = 1, the feasible range is [2025-01, 2025-05]. A 3-month reach
+# window starting 2025-02 uses months 2025-02/03/04 — leaves Mar/Apr/May-reach
+# subjects with a valid 6-month post.
+[campaign.reach_window]
+start_date      = "2025-02-01"
+duration_months = 3
+
+# In-person sales visit probabilities, correlated with reach status.
+[campaign.called_on]
+p_when_reached     = 0.65
+p_when_not_reached = 0.08
+
+# =============================================================================
+# LIFT — synthetic-only. Omitted/ignored for real-data runs.
+# =============================================================================
+[lift]
+applies_to         = "brx"
+ramp_months        = 3
+max_pct            = 0.15
+plateau_after_ramp = true

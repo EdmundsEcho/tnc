@@ -1,0 +1,12 @@
+[package]
+name = "etl-unit-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Schema-driven synthetic data generator for etl-unit (subjects + time-series measurements + qualities)"
+
+[dependencies]
+rand       = "0.8"
+rand_distr = "0.4"
+serde      = { version = "1", features = ["derive"] }
+thiserror  = "2"
+polars     = { version = "0.46", features = ["lazy", "csv", "parquet", "dtype-u8", "dtype-struct"] }

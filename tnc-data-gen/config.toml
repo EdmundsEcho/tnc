@@ -1,0 +1,218 @@
+# =============================================================================
+# TnC single-source-of-truth config.
+# Drives: data generation (etl-unit-gen) → TnC treatment → matching → ANCOVA.
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────
+# 1. SCHEMA — structural (consumable by etl-unit)
+# ─────────────────────────────────────────────────────────────
+[schema]
+subject = "npi"
+time = "mth_cnt"
+
+[[schema.qualities]]
+name = "specialty"
+[[schema.qualities]]
+name = "spec_rollup"
+[[schema.qualities]]
+name = "state"
+[[schema.qualities]]
+name = "brand_seg"
+[[schema.qualities]]
+name = "sf_p1"
+# Note: called_on, hc_match, hc_fp, propensity_score, and hrx_F12M_decile are
+# not declared here — they are TnC-injected columns added to the subjects
+# table post-generation.
+
+[[schema.measurements]]
+name = "brx"            # brand Rx — the OUTCOME
+kind = "count"
+components = ["payer"]
+
+[[schema.measurements]]
+name = "hrx"            # headroom Rx — competitive class
+kind = "count"
+components = ["payer"]
+
+[[schema.measurements]]
+name = "grx"            # generics Rx — baseline/control
+kind = "count"
+components = ["payer"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 2. GEN — how to shape the synthetic data
+# ─────────────────────────────────────────────────────────────
+[gen]
+subject_count = 3000
+time_range = { first_month = 1, last_month = 24 }
+seed = 42
+
+[gen.subject_volume_scale]
+distribution = "log_normal"
+mu = 0.0
+sigma = 0.7                   # moderate subject heterogeneity
+
+[gen.noise]
+cv = 0.10
+
+# --- Qualities ---
+[gen.qualities.specialty]
+distribution = { categorical = [
+  { value = "NP",   weight = 0.20 },
+  { value = "FP",   weight = 0.25 },
+  { value = "IM",   weight = 0.20 },
+  { value = "GP",   weight = 0.10 },
+  { value = "CARD", weight = 0.10 },
+  { value = "GI",   weight = 0.08 },
+  { value = "PULM", weight = 0.07 },
+] }
+
+[gen.qualities.spec_rollup]
+derived_from = "specialty"
+mapping = { NP = "PCP", FP = "PCP", IM = "PCP", GP = "PCP", CARD = "SPEC", GI = "SPEC", PULM = "SPEC" }
+
+[gen.qualities.state]
+distribution = { categorical = [
+  { value = "NY", weight = 0.2 },
+  { value = "CA", weight = 0.2 },
+  { value = "TX", weight = 0.2 },
+  { value = "FL", weight = 0.2 },
+  { value = "IL", weight = 0.2 },
+] }
+
+[gen.qualities.brand_seg]
+distribution = { categorical = [
+  { value = "Y", weight = 0.4 },
+  { value = "G", weight = 0.35 },
+  { value = "R", weight = 0.25 },
+] }
+
+[gen.qualities.sf_p1]
+distribution = { categorical = [
+  { value = "PC", weight = 0.6 },
+  { value = "OC", weight = 0.4 },
+] }
+
+# --- Measurements ---
+[gen.measurements.brx]
+# Brand Rx: moderate baseline so the post-campaign lift signal is visible
+# above noise.  Real TnC uses brx_F12M=0 eligibility (new drug launch); for
+# this MVP we relax that to keep a usable eligible cohort.
+distribution = { poisson = { lambda = 3.0 } }
+
+[gen.measurements.brx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID",          weight = 0.15 },
+  { value = "CASH",              weight = 0.10 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.75 },
+] }
+
+[gen.measurements.hrx]
+distribution = { negative_binomial = { mean = 20.0, dispersion = 0.25 } }
+
+[gen.measurements.hrx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID",          weight = 0.15 },
+  { value = "CASH",              weight = 0.10 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.75 },
+] }
+
+[gen.measurements.grx]
+distribution = { negative_binomial = { mean = 60.0, dispersion = 0.30 } }
+
+[gen.measurements.grx.components.payer]
+distribution = { categorical = [
+  { value = "MEDICAID",          weight = 0.20 },
+  { value = "CASH",              weight = 0.15 },
+  { value = "TOTAL_THIRD_PARTY", weight = 0.65 },
+] }
+
+
+# ─────────────────────────────────────────────────────────────
+# 3. TNC — campaign mechanics + analysis config
+# ─────────────────────────────────────────────────────────────
+[tnc]
+# Fixed-point anchor (used for phase-1 matching): month when the campaign
+# "conceptually" begins for all subjects.
+campaign_start_month = 12
+reach_span_months = 3              # reach dates distributed over months 12..14
+
+# What share of the universe ends up on the target list (hc_match = 1).
+target_list_fraction = 0.20
+
+# Of those on the target list, how many are actually reached (hc_FP != null)
+reached_fraction_of_targets = 0.85
+
+# Called-on (in-person sales visit) probability — correlated with target list
+# membership.  Reps preferentially call on their assigned targets.
+[tnc.called_on]
+p_when_target     = 0.65
+p_when_not_target = 0.08
+
+# Eligibility for INCLUSION in the matching (applies to both groups).
+# Relaxed for MVP: normally brx_f12m_max = 0 (no prior brand use).
+[tnc.eligibility]
+brx_f12m_max = 10000    # effectively no brx ceiling
+hrx_f12m_min = 1        # has headroom volume
+
+# Lift model (applied to brx ONLY, for subjects with non-null hc_FP)
+[tnc.lift]
+applies_to = "brx"
+ramp_months = 3
+max_pct = 0.50          # generous lift so the signal is recoverable at small N
+plateau_after_ramp = true
+
+# Windowed aggregate definitions, used to materialize derivations on demand.
+# All windows are computed relative to the fixed anchor (campaign_start_month)
+# for phase-1 matching. A future phase-2 will re-anchor per subject's hc_FP.
+[tnc.windows]
+P01M = { months = 1,  anchor = "pre" }
+P03M = { months = 3,  anchor = "pre" }
+P06M = { months = 6,  anchor = "pre" }
+P12M = { months = 12, anchor = "pre" }
+F12M = { months = 12, anchor = "first_observed" }
+L12M = { months = 12, anchor = "last_observed" }
+T01M = { months = 1,  anchor = "pre" }
+C02M = { months = 2,  anchor = "post" }
+C04M = { months = 4,  anchor = "post" }
+C06M = { months = 6,  anchor = "post" }
+
+# Matching spec
+[tnc.matching]
+categorical_gates = ["state", "spec_rollup", "sf_p1"]
+
+[[tnc.matching.volume_gates]]
+source = { measurement = "hrx", window = "F12M" }
+within_ratio = 0.5
+allow_zero_zero = true
+
+[[tnc.matching.volume_gates]]
+source = { measurement = "grx", window = "F12M" }
+within_ratio = 0.5
+allow_zero_zero = false
+
+# Points awarded to the best-matching control per (test, window, rx_type)
+[tnc.matching.scoring]
+rx_types = ["brx", "hrx", "grx"]
+window_points = { P01M = 1, P03M = 1000, P06M = 10, P12M = 100 }
+
+# ANCOVA spec
+[tnc.ancova]
+# Outcome variables: (measurement, window) pairs.
+outcomes = [
+  { measurement = "brx", window = "C02M" },
+  { measurement = "brx", window = "C04M" },
+  { measurement = "brx", window = "C06M" },
+]
+treatment = "hc_match"
+baseline = { measurement = "brx", window = "T01M" }
+# Quality covariates (one-hot encoded)
+covariate_qualities = ["spec_rollup", "sf_p1"]
+# Windowed measurement covariates
+covariate_windows = [
+  { measurement = "hrx", window = "P03M" },
+  { measurement = "hrx", window = "P12M" },
+  { measurement = "grx", window = "P03M" },
+  { measurement = "grx", window = "P12M" },
+]

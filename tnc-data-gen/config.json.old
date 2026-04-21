@@ -1,0 +1,75 @@
+{
+  "subjects": {
+    "comp_count": 6000,
+    "product_a_ratio": 0.5,
+    "target_list_ratio": 0.25,
+    "other_market_ratio": 2.0,
+    "target_list_comp_max_decile": 6,
+    "target_list_product_a_max_decile": 9
+  },
+  "time": {
+    "campaign_start": "2016-01",
+    "reach_span_months": 3,
+    "pre_campaign_months": 18,
+    "post_last_reach_months": 6,
+    "date_format": "YYYY-MM"
+  },
+  "values": {
+    "comp_base_mean": 30.0,
+    "product_a_ratio": 0.33,
+    "other_market_ratio": 3.0,
+    "noise_std_error": 0.3,
+    "decile_distribution": "exponential",
+    "decile_base": 3.0
+  },
+  "lift": {
+    "max_lift_pct": 0.15,
+    "ramp_months": 3,
+    "plateau_after_ramp": true
+  },
+  "payer_types": ["MEDICAID", "CASH", "TOTAL THIRD PARTY"],
+  "payer_weights": [0.15, 0.1, 0.75],
+  "specialties": {
+    "values": [
+      "NURSE PRACTITIONER",
+      "FAMILY PRACTICE",
+      "INTERNAL MEDICINE",
+      "GENERAL PRACTICE",
+      "CARDIOLOGY",
+      "GASTROENTEROLOGY",
+      "PULMONARY DISEASE",
+      "ENDOCRINOLOGY",
+      "NEPHROLOGY",
+      "RHEUMATOLOGY"
+    ],
+    "campaign_weights": [
+      0.2, 0.2, 0.15, 0.1, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04
+    ],
+    "population_weights": [
+      0.25, 0.2, 0.15, 0.1, 0.08, 0.06, 0.05, 0.04, 0.04, 0.03
+    ]
+  },
+  "states": [
+    "NY",
+    "CA",
+    "TX",
+    "FL",
+    "IL",
+    "PA",
+    "OH",
+    "GA",
+    "NC",
+    "MI",
+    "NJ",
+    "VA",
+    "WA",
+    "AZ",
+    "MA",
+    "TN",
+    "IN",
+    "MO",
+    "MD",
+    "WI"
+  ],
+  "output_dir": "./output"
+}

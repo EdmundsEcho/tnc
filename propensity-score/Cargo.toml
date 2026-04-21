@@ -1,0 +1,18 @@
+[package]
+name = "propensity-score"
+version = "0.1.0"
+edition = "2021"
+description = "Propensity score estimation via logistic regression"
+
+[dependencies]
+# Linear algebra
+nalgebra = "0.33"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+approx = "0.5"

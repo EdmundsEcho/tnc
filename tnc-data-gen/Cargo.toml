@@ -1,0 +1,19 @@
+[package]
+name = "tnc-data-gen"
+version = "0.2.0"
+edition = "2021"
+description = "Synthetic TnC data generator + CLI driver for the tnc-analysis pipeline"
+
+[dependencies]
+# The analysis library — the real work lives here.
+tnc-analysis = { path = "../tnc-analysis" }
+
+# Synthetic generation (base subjects + measurements).
+etl-unit-gen = { path = "../etl-unit-gen" }
+
+# Polars for the synthetic-lift + augment bits in synth.rs.
+polars = { version = "0.46", features = ["lazy", "csv", "parquet", "dtype-u8", "dtype-struct"] }
+
+# RNG for the synthetic reach assignment and --seed random.
+rand       = "0.8"
+rand_distr = "0.4"

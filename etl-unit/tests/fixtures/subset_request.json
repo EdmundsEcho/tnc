@@ -1,0 +1,9 @@
+{
+      "NOTE": "Auto-generated",
+      "measurements": ["sump", "fuel", "any_engine_running"],
+      "qualities": [],
+      "subject_filter": {
+        "type": "Include",
+        "values": ["Station_A"]
+      }
+    }

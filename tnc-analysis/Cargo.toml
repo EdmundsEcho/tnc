@@ -1,0 +1,18 @@
+[package]
+name = "tnc-analysis"
+version = "0.2.0"
+edition = "2021"
+description = "TnC analysis pipeline — universe/micro-pool/match/ANCOVA, as a reusable library"
+
+[dependencies]
+# GeneratedData is the input shape for Analysis::new; consumed by services and
+# by tnc-data-gen alike.
+etl-unit-gen     = { path = "../etl-unit-gen" }
+propensity-score = { path = "../propensity-score" }
+
+polars     = { version = "0.46", features = ["lazy", "csv", "parquet", "dtype-u8", "dtype-struct", "is_in", "pivot", "round_series"] }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml       = "0.8"
+nalgebra   = "0.33"
+thiserror  = "2"

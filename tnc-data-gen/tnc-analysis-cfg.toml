@@ -1,0 +1,266 @@
+# =============================================================================
+# TNC ANALYSIS CONFIG
+#
+# Describes the ANALYSIS that consumes the generated data:
+#   1. Derived field definitions (windowed aggregates)
+#   2. Eligibility rules for the matching pool
+#   3. Propensity score inputs (qualities + F-anchored pre-period derivations)
+#   4. Matching strategy: categorical gates + propensity micro-pool + Rx-decile match
+#   5. ANCOVA regression spec
+#
+# ⚠ INVARIANT: post-period measurements NEVER enter matching, eligibility, or
+# the propensity score.  PRE is a predictor; POST is the dependent variable.
+# Windows tagged anchor = "post" or anchor = "test_period" must NOT appear in
+# any matching / propensity / eligibility configuration below.
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────
+# Derived fields (windowed aggregates)
+#
+# UNIVERSE anchors — one window for every subject:
+#   "last"   — months ending at reach_window.first_month − 1, extending BACK.
+#              L01M = the single month just before the campaign starts,
+#              L12M = the 12 months immediately before.  This is the
+#              Phase-1 / first-pass baseline (safe: entirely pre-campaign).
+#              Direction: L01 → L12 counts UP going BACK in time.
+#   "first"  — months from study_start_date, counting FORWARD.
+#              F01M = first month of data, F12M = first 12. Diagnostic.
+#              L and F can overlap (same universe, different anchor points).
+#
+# PER-SUBJECT anchors — anchored on each subject's campaign_reach_date
+# (controls use earliest_reach_month in Phase-1):
+#   "pre"            — ends the month before reach_date, extends back.
+#   "test_period"    — [reach_date, reach_date + test_period − 1]. EXCLUDED.
+#   "post"           — starts at reach_date + test_period_months, extends forward.
+# ─────────────────────────────────────────────────────────────
+[derived_fields]
+
+# Universe-anchored — first-pass / baseline covariates. All three are used
+# in micro-pool volume gates; each is deciled independently for brx/hrx/grx.
+L03M    = { months = 3,  anchor = "last" }
+L06M    = { months = 6,  anchor = "last" }
+L12M    = { months = 12, anchor = "last" }
+
+# Per-subject PRE windows — available as PREDICTORS and MATCHING covariates
+PRE01M  = { months = 1,  anchor = "pre" }
+PRE03M  = { months = 3,  anchor = "pre" }
+PRE06M  = { months = 6,  anchor = "pre" }
+PRE12M  = { months = 12, anchor = "pre" }
+
+# Per-subject TEST (lag) window — excluded from analysis entirely
+TEST01M = { months = 1,  anchor = "test_period" }
+
+# Per-subject POST windows — OUTCOMES ONLY. Forbidden in matching / propensity.
+POST02M = { months = 2,  anchor = "post" }
+POST04M = { months = 4,  anchor = "post" }
+POST06M = { months = 6,  anchor = "post" }
+
+
+# ─────────────────────────────────────────────────────────────
+# Universe — who's even eligible to participate in the analysis.
+#
+# A subject joins the universe iff their
+#   (signature_qualities × signature_writing_profiles (merged deciles))
+# signature is observed among the reached cohort. If no cardiac surgeon
+# was reached, cardiac surgery isn't in the universe — full stop.
+# ─────────────────────────────────────────────────────────────
+[universe]
+signature_qualities = ["specialty", "state"]
+signature_writing_profiles = [
+  { measurement = "brx", window = "L12M" },
+  { measurement = "hrx", window = "L12M" },
+  { measurement = "grx", window = "L12M" },
+]
+
+
+# ─────────────────────────────────────────────────────────────
+# Eligibility — who can be in the matching pool (test OR control)
+#
+# Uses F-anchored windows only, because every subject has them regardless of
+# reach status. PRE windows require a reach date (real or virtual), so they
+# could also be used, but F is the cleanest universe-level filter.
+# ─────────────────────────────────────────────────────────────
+[eligibility]
+brx_L12M_max = 10000   # relaxed for MVP (normally 0 for a new-drug launch)
+hrx_L12M_min = 1       # must have some headroom prescribing
+
+
+# ─────────────────────────────────────────────────────────────
+# Decile grouping — collapse arbitrary decile subsets into one bucket.
+#
+# Applied wherever we compare deciles: universe signatures and the
+# micro-pool volume gates. Groups are unordered subsets of [0..=10];
+# each decile may appear in at most one group. Deciles not listed stay
+# as singleton buckets. The merged bucket is identified by the smallest
+# decile in the group (so `[[9, 10]]` produces D0..D8 + D9-10).
+#
+# Lookup per (measurement, window): the first override matching the
+# source wins; otherwise the default grouping applies.
+# ─────────────────────────────────────────────────────────────
+[decile_grouping]
+default = { groups = [] }
+
+# Whales are sparse at D10 — merge for every brx window by default.
+[[decile_grouping.overrides]]
+source = { measurement = "brx", window = "L12M" }
+groups = [[9, 10]]
+
+[[decile_grouping.overrides]]
+source = { measurement = "brx", window = "L06M" }
+groups = [[9, 10]]
+
+[[decile_grouping.overrides]]
+source = { measurement = "brx", window = "L03M" }
+groups = [[9, 10]]
+
+
+# ─────────────────────────────────────────────────────────────
+# Propensity score spec
+#
+# Target:  reached (1 if campaign_reach_date is non-null, else 0)
+# Features: qualities (one-hot) + derived fields
+# Used in matching as a Stage-1 filter (micro-pool = same propensity decile)
+#
+# Note: predictor_derived uses L-anchored (universe, pre-campaign) baselines
+# so the model can score EVERY subject — reached and non-reached alike.
+# PRE windows could also be included for tests + virtually-anchored controls,
+# but L is the safest universe-level baseline.
+# ─────────────────────────────────────────────────────────────
+[propensity]
+target            = "reached"
+predictor_qualities = ["specialty", "spec_rollup", "state", "brand_seg", "sf_p1", "called_on"]
+predictor_derived = [
+  "brx_L12M",
+  "hrx_L12M",
+  "grx_L12M",
+]
+# Decile binning for the micro-pool stage
+bin_count = 10
+binning   = "quantile"
+
+
+# ─────────────────────────────────────────────────────────────
+# Matching spec — two-stage
+#
+# STAGE 1 (micro-pool): categorical hard gates + same propensity decile
+# STAGE 2 (final):      PRE-period Rx-decile scoring
+#   • deciles computed on the pre-period Rx usage (equal-volume, D0..D10)
+#   • D0 (non-writers) matches only D0 (hard gate)
+# ─────────────────────────────────────────────────────────────
+[matching]
+categorical_gates = ["state", "spec_rollup", "sf_p1"]
+
+# Enable propensity-decile matching: test must pair with a control in the
+# SAME propensity decile bucket.
+propensity_match = true
+
+# Volume gates on equal-*volume* deciles (D0 = non-writer, D10 = whale).
+# `within_deciles = 0` ⇒ must share the exact *merged* bucket (decile_grouping
+# applied); 1 ⇒ same or neighbor bucket. Matching on deciles makes brx/hrx/grx
+# comparable under a single rule and removes raw-value edge cases.
+# 9 gates: brx/hrx/grx × L03M/L06M/L12M. Start strict; autotune can relax later.
+[[matching.volume_gates]]
+source = { measurement = "brx", window = "L12M" }
+within_deciles = 0
+[[matching.volume_gates]]
+source = { measurement = "brx", window = "L06M" }
+within_deciles = 0
+[[matching.volume_gates]]
+source = { measurement = "brx", window = "L03M" }
+within_deciles = 1
+
+[[matching.volume_gates]]
+source = { measurement = "hrx", window = "L12M" }
+within_deciles = 0
+[[matching.volume_gates]]
+source = { measurement = "hrx", window = "L06M" }
+within_deciles = 1
+[[matching.volume_gates]]
+source = { measurement = "hrx", window = "L03M" }
+within_deciles = 1
+
+[[matching.volume_gates]]
+source = { measurement = "grx", window = "L12M" }
+within_deciles = 0
+[[matching.volume_gates]]
+source = { measurement = "grx", window = "L06M" }
+within_deciles = 1
+[[matching.volume_gates]]
+source = { measurement = "grx", window = "L03M" }
+within_deciles = 1
+
+# Rx-decile scoring — the final match rewards closeness on per-subject PRE Rx.
+# Autotuner (TODO — config stub only). When `enabled = true` the pipeline
+# will start with the strictest volume_gates (effectively within_deciles = 0
+# everywhere) and progressively relax each entry in `relaxation_schedule`
+# until match rate ≥ target. Not yet implemented — currently a no-op that
+# logs a TODO and falls back to the explicit volume_gates above.
+[matching.autotune]
+enabled             = false
+target_match_rate   = 0.5
+relaxation_schedule = [
+  { source = { measurement = "brx", window = "L03M" }, within_deciles_max = 2 },
+  { source = { measurement = "hrx", window = "L03M" }, within_deciles_max = 2 },
+  { source = { measurement = "brx", window = "L06M" }, within_deciles_max = 2 },
+  { source = { measurement = "hrx", window = "L06M" }, within_deciles_max = 2 },
+  { source = { measurement = "grx", window = "L06M" }, within_deciles_max = 2 },
+  { source = { measurement = "brx", window = "L12M" }, within_deciles_max = 1 },
+  { source = { measurement = "hrx", window = "L12M" }, within_deciles_max = 1 },
+  { source = { measurement = "grx", window = "L12M" }, within_deciles_max = 1 },
+]
+
+
+[matching.scoring]
+rx_types     = ["brx", "hrx", "grx"]
+window_points = { PRE01M = 1, PRE03M = 1000, PRE06M = 10, PRE12M = 100 }
+
+
+# ─────────────────────────────────────────────────────────────
+# ANCOVA — the final causal estimation
+# ─────────────────────────────────────────────────────────────
+[ancova]
+outcomes = [
+  { measurement = "brx", window = "POST02M" },
+  { measurement = "brx", window = "POST04M" },
+  { measurement = "brx", window = "POST06M" },
+]
+# Treatment is implicit: rows from matched pairs are labelled
+# 1 (test = reached) / 0 (control = matched non-reached).
+baseline  = { measurement = "brx", window = "PRE01M" }
+
+# Quality covariates (one-hot encoded)
+covariate_qualities = ["spec_rollup", "sf_p1"]
+
+# Pre-period Rx covariates — NEVER include post/test-period windows here
+covariate_windows = [
+  { measurement = "hrx", window = "PRE03M" },
+  { measurement = "hrx", window = "PRE12M" },
+  { measurement = "grx", window = "PRE03M" },
+  { measurement = "grx", window = "PRE12M" },
+]
+
+
+# ─────────────────────────────────────────────────────────────
+# INPUT VALIDATION — pre-flight gates on the input data.
+# Any failure halts the pipeline before matching.
+# ─────────────────────────────────────────────────────────────
+[input_validation]
+min_reached                 = 50     # campaign must have touched ≥ this many in-universe subjects
+min_eligible_control_pool   = 200    # at least this many in-universe non-reached subjects
+min_test_to_control_ratio   = 0.05   # reached / control_pool ≥ 5%
+
+
+# ─────────────────────────────────────────────────────────────
+# MATCH VALIDATION — post-match placebo test on the pre-period.
+# For each entry, compute group-mean DiD = |test_mean − control_mean| on
+# the listed pre-period window. If the DiD exceeds `max`, matching is
+# presumed broken and the pipeline halts. Empty list disables the check.
+# ─────────────────────────────────────────────────────────────
+[match_validation]
+# Current tolerances reflect observed gaps; tighten as matching improves.
+# See decile_grouping + volume_gates above if these need to be tightened.
+max_did_pre = [
+  { measurement = "brx", window = "PRE06M", max = 20.0 },
+  { measurement = "hrx", window = "PRE06M", max = 60.0 },
+  { measurement = "grx", window = "PRE06M", max = 200.0 },
+]

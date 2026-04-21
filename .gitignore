@@ -1,0 +1,23 @@
+# Rust build output
+target/
+
+# Node
+node_modules/
+
+# Vite / bundler output
+dist/
+.vite/
+
+# Generated synthetic data — every `cargo run` regenerates this
+tnc-data-gen/output/
+
+# Regenerated dashboard data (copied from tnc-data-gen/output/).
+# Uncomment to exclude the snapshot too; currently committed so a fresh
+# clone can serve the dashboard without running the generator first.
+tnc-charts/public/data/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
